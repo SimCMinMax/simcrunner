@@ -8,12 +8,11 @@ Created by Romain Mondon-Cancel on 2018-08-02 11:08:59
 import platform
 import subprocess
 import os
-import logging
 
-from typing import List, Dict, Union, Optional
+from typing import List, Union, Optional
 
 
-class SimcArgs:
+class SimcArg:
     """
     Abstract class representing simc arguments for dynamic constructions.
     """
@@ -21,8 +20,126 @@ class SimcArgs:
     def __init__(self):
         pass
 
-    def args(self) -> List[str]:
+    def append_to(self, args: List[str]=[]) -> List[str]:
         pass
+
+
+class SingleArg(SimcArg):
+    """
+    Represents a single literal argument.
+    """
+
+    simc_arg: str
+
+    def __init__(self, simc_arg: str):
+        self.simc_arg = simc_arg
+
+    def append_to(self, args: List[str]=[]) -> List[str]:
+        return args + [self.simc_arg]
+
+
+class KeyValueArg(SingleArg):
+    """
+    Represents a key-value pair argument.
+    """
+
+    key: str
+    value: str
+
+    def __init__(self, key: str, value: str):
+        self.key = key
+        self.value = value
+
+    @property
+    def simc_arg(self) -> str:
+        return f'{self.key}={self.value}'
+
+
+class Profile(SingleArg):
+    """
+    Represents a profile file.
+    """
+
+    file_path: str
+    add_suffix: bool
+    SUFFIX: str = '.simc'
+
+    def __init__(self, file_path: str, add_suffix: bool=False):
+        self.file_path = file_path
+        self.add_suffix = add_suffix
+
+    @property
+    def simc_arg(self) -> str:
+        file_ = self.file_path
+        if self.add_suffix:
+            file_ += self.SUFFIX
+        return file_
+
+
+class FileExport(KeyValueArg):
+    """
+    Arguments to export simc result to a given file.
+    """
+
+    EXTENSION: str
+    file_path: str
+    add_suffix: bool
+
+    def __init__(self, file_path, add_suffix: bool=False):
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        self.file_path = file_path
+        self.add_suffix = add_suffix
+
+    @property
+    def value(self):
+        value = self.file_path
+        if not value.endswith(self.EXTENSION):
+            value += self.EXTENSION
+        return value
+
+
+class JsonExport(FileExport):
+    """
+    Arguments to export simc result to a given json file.
+    """
+
+    EXTENSION: str = '.json'
+    key: str = 'json2'
+
+
+class HtmlExport(FileExport):
+    """
+    Arguments to export simc result to a given html file.
+    """
+
+    EXTENSION: str = '.html'
+    key: str = 'html'
+
+
+class Arguments(SimcArg):
+    """
+    Generate arguments for simc from key-value pairs.
+    """
+
+    args: List[SingleArg] = []
+
+    def __init__(self, *args: Union[str, SingleArg], **kwargs: str):
+        for arg in args:
+            self.add_arg(arg)
+        for key, arg in kwargs.items():
+            self.add_arg(KeyValueArg(key, arg))
+
+    def add_arg(self, arg: Union[str, SingleArg]):
+        if isinstance(arg, SingleArg):
+            self.args.append(arg)
+        else:
+            self.args.append(SingleArg(arg))
+
+    def append_to(self, args: List[str]=[]) -> List[str]:
+        new_args = args.copy()
+        for arg in self.args:
+            new_args = arg.append_to(new_args)
+        return new_args
 
 
 class Simc:
@@ -31,9 +148,10 @@ class Simc:
     """
 
     simc_path: str
-    args: List[Union[str, List[str], SimcArgs]]
+    args: List[SimcArg]
 
-    def __init__(self, *args, simc_path: Optional[str]=None):
+    def __init__(self, *args: Union[str, SimcArg],
+                 simc_path: Optional[str]=None):
         if not simc_path:
             try:
                 simc_path = os.environ['SIMC_PATH']
@@ -44,7 +162,7 @@ class Simc:
                     '"SIMC_PATH" is defined.'
                 )
         self.simc_path = simc_path
-        self.args = list(args)
+        self.set_args(*args)
 
     @property
     def executable(self) -> str:
@@ -58,35 +176,30 @@ class Simc:
     def run_args(self) -> List[str]:
         res = []
         for arg in self.args:
-            if type(arg) is str:
-                res += [arg]
-                continue
-            if type(arg) is list:
-                res += arg
-                continue
-            if isinstance(arg, SimcArgs):
-                res += arg.args()
-                continue
-            logging.warning(f'Argument {arg} has invalid type {type(arg)};'
-                            'ignored.')
+            res = arg.append_to(res)
         return res
 
-    def set_args(self, *args):
+    def set_args(self, *args: Union[str, SimcArg]):
         """
         Set args in a functional form.
         """
-        self.args = list(args)
-        return self
+        self.args = []
+        return self.add_args(*args)
 
     def add_args(self, *args):
         """
         Append args in a functional form.
         """
-        self.args += list(args)
+        for arg in args:
+            self.add_arg(arg)
         return self
-
-    def get_arg(self, arg):
-        return arg if type(arg) is str else arg.args()
+    
+    def add_arg(self, arg):
+        if type(arg) is str:
+            self.args.append(SingleArg(arg))
+        else:
+            self.args.append(arg)
+        return self
 
     def run(self):
         """
@@ -94,96 +207,3 @@ class Simc:
         """
         simc_process = subprocess.Popen([self.executable] + self.run_args)
         simc_process.wait()
-
-
-class FileExport(SimcArgs):
-    """
-    Arguments to export simc result to a given file.
-    """
-
-    path: str
-    file_name: str
-    extension: str
-    arg_name: str
-
-    def __init__(self, file_name: str, extension: str,
-                 arg_name: str, path: str=''):
-        self.file_name = file_name
-        self.extension = extension
-        self.arg_name = arg_name
-        self.path = path
-
-    @property
-    def full_file_name(self):
-        if self.file_name[-len(self.extension):] == self.extension:
-            ext = ''
-        else:
-            ext = self.extension
-        return self.file_name + ext
-
-    def args(self) -> List[str]:
-        if not os.path.exists(self.path):
-            os.makedirs(self.path)
-        full_path = os.path.join(self.path, self.full_file_name)
-        return [f'{self.arg_name}={full_path}']
-
-
-class JsonExport(FileExport):
-    """
-    Arguments to export simc result to a given json file.
-    """
-
-    def __init__(self, file_name: str, json_path: str=''):
-        super().__init__(file_name, '.json', 'json2', json_path)
-
-
-class HtmlExport(SimcArgs):
-    """
-    Arguments to export simc result to a given html file.
-    """
-
-    def __init__(self, file_name: str, html_path: str=''):
-        super().__init__(file_name, '.html', 'html', html_path)
-
-
-class Profiles(SimcArgs):
-    """
-    Arguments for profile files arguments for simc.
-    """
-
-    base_path: str
-    files: List[str]
-    append_suffix: bool
-
-    def __init__(self, files: Union[str, List[str]], base_path: str='',
-                 append_suffix: bool=False):
-        self.base_path = base_path
-        self.files = [files] if type(files) is str else files
-        self.append_suffix = append_suffix
-
-    def format_file_name(self, file_name):
-        full_file_name = file_name
-        if self.append_suffix:
-            full_file_name += '.simc'
-        return full_file_name
-
-    def args(self) -> List[str]:
-        return [os.path.join(self.base_path, self.format_file_name(file_name))
-                for file_name in self.files]
-
-
-class KeyValueArgs(SimcArgs):
-    """
-    Generate arguments for simc from key-value pairs.
-    """
-
-    kwargs: Dict[str, str]
-
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-
-    def to_arg(self, key, value):
-        return f'{key}={value}'
-
-    def args(self) -> List[str]:
-        return [self.to_arg(key, value) for key, value in self.kwargs.items()]

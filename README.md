@@ -36,18 +36,16 @@ A typical example would be:
 
 ```py
 import os
-from simcrunner import Simc, JsonExport, KeyValueArgs, Profiles
+from simcrunner import Simc, JsonExport, Arguments, Profile
 simc_path = os.path.join('~', 'simc')
 runner = Simc(simc_path=simc_path)
-json_export = JsonExport(file_name='simc_export.json', json_path='results')
-profile = Profiles(files='T21_Rogue_Assassination.simc',
-                   base_path=os.path.join(simc_path, 'profiles', 'Tier22'))
-kv_args = KeyValueArgs(iterations=1000)
+json_export = JsonExport(os.path.join('results', 'simc_export.json'))
+profile = Profile(os.path.join(simc_path, 'profiles', 'Tier21',
+                               'T21_Rogue_Assassination.simc'))
+main_args = Arguments(profile, iterations=1000)
 (runner
+    .add_args(main_args)
+    .add_args('target_error=0.05', 'threads=6')
     .add_args(json_export)
-    .add_args(profile)
-    .add_args(kv_args)
-    .add_args('target_error=0.05')
-    .add_args(['threads=6'])
     .run())
 ```

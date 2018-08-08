@@ -12,7 +12,7 @@ setup(
     version='0.1',
     packages=find_packages(exclude=['test*']),
     license='MIT',
-    description='A python package to run simulationcraft.'
+    description='A python package to run simulationcraft.',
     long_description=open('README.md').read(),
     url='https://github.com/simcminmax/simcrunner',
     author='Romain Mondon-Cancel [skasch]',
