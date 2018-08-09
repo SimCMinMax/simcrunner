@@ -201,7 +201,7 @@ class ProfileSet(HasArguments, SingleArg):
     
     @property
     def simc_arg(self) -> str:
-        return f'profileset.{self.name}={"/".join(self.args_list)}'
+        return f'profileset."{self.name}"={"/".join(self.args_list)}'
 
 
 class Simc(HasArguments):
