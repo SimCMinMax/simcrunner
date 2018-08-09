@@ -8,8 +8,12 @@ Created by Romain Mondon-Cancel on 2018-08-02 11:08:59
 import platform
 import subprocess
 import os
+import logging
 
-from typing import List, Union, Optional
+from typing import List, Union, Optional, TypeVar
+
+
+Arg = TypeVar('Arg', str, int, float)
 
 
 class SimcArg:
@@ -44,15 +48,15 @@ class KeyValueArg(SingleArg):
     """
 
     key: str
-    value: str
+    arg: Arg
 
-    def __init__(self, key: str, value: str):
+    def __init__(self, key: str, arg: Arg):
         self.key = key
-        self.value = value
+        self.arg = arg
 
     @property
     def simc_arg(self) -> str:
-        return f'{self.key}={self.value}'
+        return f'{self.key}={self.arg}'
 
 
 class Profile(SingleArg):
@@ -91,11 +95,11 @@ class FileExport(KeyValueArg):
         self.add_suffix = add_suffix
 
     @property
-    def value(self):
-        value = self.file_path
-        if not value.endswith(self.EXTENSION):
-            value += self.EXTENSION
-        return value
+    def arg(self) -> Arg:
+        arg = self.file_path
+        if not arg.endswith(self.EXTENSION):
+            arg += self.EXTENSION
+        return arg
 
 
 class JsonExport(FileExport):
@@ -121,9 +125,10 @@ class Arguments(SimcArg):
     Generate arguments for simc from key-value pairs.
     """
 
-    args: List[SingleArg] = []
+    args: List[SingleArg]
 
-    def __init__(self, *args: Union[str, SingleArg], **kwargs: str):
+    def __init__(self, *args: Union[str, SingleArg], **kwargs: Arg):
+        self.args = []
         for arg in args:
             self.add_arg(arg)
         for key, arg in kwargs.items():
@@ -142,16 +147,75 @@ class Arguments(SimcArg):
         return new_args
 
 
-class Simc:
+class HasArguments:
+    """
+    List of simc arguments.
+    """
+
+    args: List[SimcArg]
+
+    def __init__(self, *args: Union[str, SimcArg], **kwargs: Arg):
+        self.set_args(*args, **kwargs)
+
+    def set_args(self, *args: Union[str, SimcArg], **kwargs: Arg):
+        """
+        Set args in a functional form.
+        """
+        self.args = []
+        return self.add_args(*args, **kwargs)
+
+    def add_args(self, *args: Union[str, SimcArg], **kwargs: Arg):
+        """
+        Append args in a functional form.
+        """
+        for arg in args:
+            self.add_arg(arg)
+        self.add_arg(Arguments(**kwargs))
+        return self
+
+    def add_arg(self, arg: Union[str, SimcArg]):
+        if type(arg) is str:
+            self.args.append(SingleArg(arg))
+        else:
+            self.args.append(arg)
+        return self
+
+    @property
+    def args_list(self) -> List[str]:
+        res = []
+        for arg in self.args:
+            res = arg.append_to(res)
+        return res
+
+
+class ProfileSet(HasArguments, SingleArg):
+    """
+    Represents a single profileset.
+    """
+
+    name: str
+
+    def __init__(self, name: str, *args: Union[str, SimcArg], **kwargs: Arg):
+        self.name = name
+        super().__init__(*args, **kwargs)
+    
+    @property
+    def simc_arg(self) -> str:
+        return f'profileset.{self.name}={"/".join(self.args_list)}'
+
+
+class Simc(HasArguments):
     """
     simc runner.
     """
 
+    verbose: bool
     simc_path: str
-    args: List[SimcArg]
 
-    def __init__(self, *args: Union[str, SimcArg],
-                 simc_path: Optional[str]=None):
+    def __init__(self, simc_path: Optional[str]=None,
+                 *args: Union[str, SimcArg], verbose: bool=False,
+                 **kwargs: Arg):
+        print(args, kwargs)
         if not simc_path:
             try:
                 simc_path = os.environ['SIMC_PATH']
@@ -161,8 +225,9 @@ class Simc:
                     '"simc_path" is provided or the environment variable '
                     '"SIMC_PATH" is defined.'
                 )
+        self.verbose = verbose
         self.simc_path = simc_path
-        self.set_args(*args)
+        super().__init__(*args, **kwargs)
 
     @property
     def executable(self) -> str:
@@ -172,38 +237,12 @@ class Simc:
         ext = '.exe' if platform.system() == 'Windows' else ''
         return os.path.join(self.simc_path, f'simc{ext}')
 
-    @property
-    def run_args(self) -> List[str]:
-        res = []
-        for arg in self.args:
-            res = arg.append_to(res)
-        return res
-
-    def set_args(self, *args: Union[str, SimcArg]):
-        """
-        Set args in a functional form.
-        """
-        self.args = []
-        return self.add_args(*args)
-
-    def add_args(self, *args):
-        """
-        Append args in a functional form.
-        """
-        for arg in args:
-            self.add_arg(arg)
-        return self
-    
-    def add_arg(self, arg):
-        if type(arg) is str:
-            self.args.append(SingleArg(arg))
-        else:
-            self.args.append(arg)
-        return self
-
     def run(self):
         """
         Run simc with the given arguments.
         """
-        simc_process = subprocess.Popen([self.executable] + self.run_args)
+        run_list = [self.executable] + self.args_list
+        if self.verbose:
+            logging.info(f'Executing: {" ".join(run_list)}')
+        simc_process = subprocess.Popen(run_list)
         simc_process.wait()
