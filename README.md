@@ -40,7 +40,7 @@ import logging
 from simcrunner import Simc, JsonExport, Arguments, Profile
 logging.basicConfig(level=logging.INFO)
 simc_path = os.path.join('..', '..', 'personal', 'simc')
-runner = Simc(simc_path=simc_path, verbose=True)
+runner = Simc(simc_path=simc_path)
 json_export = JsonExport(os.path.join('results', 'simc_export.json'))
 profile = Profile(os.path.join(simc_path, 'profiles', 'Tier21',
                                'T21_Rogue_Assassination.simc'))
@@ -66,8 +66,12 @@ simc_path = os.path.join('..', '..', 'personal', 'simc')
 profile = Profile(os.path.join(simc_path, 'profiles', 'Tier21',
                                'T21_Rogue_Assassination.simc'))
 json_export = JsonExport(os.path.join('results', 'simc_export.json'))
-runner = Simc(simc_path, profile, json_export, verbose=True, iterations=1000)
-profile_set = ProfileSet(name='duration_400').add_args(max_time=400)
+runner = Simc(profile, json_export, iterations=1000,
+              simc_path=simc_path)
+profile_set = (
+    ProfileSet(name='duration_400', target_error=0.2)
+    .add_args(max_time=400)
+)
 runner.add_args(profile_set)
 runner.run()
 ```
